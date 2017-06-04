@@ -11,6 +11,7 @@ except ImportError:
 
 from bs4 import BeautifulSoup
 import requests
+import re
 from requests.exceptions import RequestException
 from six import iteritems
 from six.moves import range
