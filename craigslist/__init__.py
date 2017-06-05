@@ -1,10 +1,5 @@
 import logging
 try:
-    from Queue import Queue  # PY2
-except ImportError:
-    from queue import Queue  # PY3
-from threading import Thread
-try:
     from urlparse import urljoin  # PY2
 except ImportError:
     from urllib.parse import urljoin  # PY3
@@ -14,7 +9,6 @@ import requests
 import re
 from requests.exceptions import RequestException
 from six import iteritems
-from six.moves import range
 
 from .sites import get_all_sites
 
@@ -75,9 +69,6 @@ class CraigslistBase(object):
         'zip_code': {'url_key': 'postal', 'value': None},
     }
     extra_filters = {}
-
-    # Set to True to subclass defines the customize_results() method
-    custom_result_fields = False
 
     sort_by_options = {
         'newest': 'date',
@@ -234,8 +225,7 @@ class CraigslistBase(object):
                           'has_map': 'map' in tags,
                           'geotag': None}
 
-                if self.custom_result_fields:
-                    self.customize_result(result, row)
+                self.customize_result(result, row)
 
                 if (geotagged and result['has_map']) or include_details:
                     detail_soup = self.fetch_content(result['url'])
@@ -302,35 +292,6 @@ class CraigslistBase(object):
             return bs(response.content)
 
         return None
-
-    def geotag_results(self, results, workers=8):
-        """
-        Add (lat, lng) to each result. This process is done using N threads,
-        where N is the amount of workers defined (default: 8).
-        """
-
-        results = list(results)
-        queue = Queue()
-
-        for result in results:
-            queue.put(result)
-
-        def geotagger():
-            while not queue.empty():
-                self.logger.debug('%s results left to geotag ...',
-                                  queue.qsize())
-                self.geotag_result(queue.get())
-                queue.task_done()
-
-        threads = []
-        for _ in range(workers):
-            thread = Thread(target=geotagger)
-            thread.start()
-            threads.append(thread)
-
-        for thread in threads:
-            thread.join()
-        return results
 
     @classmethod
     def show_filters(cls, category=None):
@@ -424,7 +385,6 @@ class CraigslistHousing(CraigslistBase):
     """ Craigslist housing wrapper. """
 
     default_category = 'hhh'
-    custom_result_fields = True
 
     extra_filters = {
         'private_room': {'url_key': 'private_room', 'value': 1},
