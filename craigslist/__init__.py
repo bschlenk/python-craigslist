@@ -1,4 +1,5 @@
 import logging
+import datetime
 try:
     from urlparse import urljoin  # PY2
 except ImportError:
@@ -14,6 +15,8 @@ from .sites import get_all_sites
 
 ALL_SITES = get_all_sites()  # All the Craiglist sites
 RESULTS_PER_REQUEST = 100  # Craigslist returns 100 results per request
+
+DATE_FORMAT = '%Y-%m-%d'
 
 
 def bs(content):
@@ -248,6 +251,10 @@ class CraigslistBase(object):
         """ Add custom/delete/alter fields to result. """
         pass  # Override in subclass to add category-specific fields.
 
+    def custom_include_details(self, result, soup):
+        """ Parse extra fields from the listing detail page. """
+        pass  # Override in subclass to add category-specific details.
+
     def geotag_result(self, result, soup):
         """ Adds (lat, lng) to result. """
 
@@ -282,6 +289,8 @@ class CraigslistBase(object):
             images.append(img_link)
 
         result['images'] = images
+
+        self.custom_include_details(result, soup)
 
     def fetch_content(self, url):
         response = requests_get(url, logger=self.logger)
@@ -404,6 +413,47 @@ class CraigslistHousing(CraigslistBase):
         'wheelchair_acccess': {'url_key': 'wheelchaccess', 'value': 1},
     }
 
+    laundry_types = {
+        'w/d in unit',
+        'w/d hookups',
+        'laundry in bldg',
+        'laundry on site',
+        'no laundry on site',
+    }
+
+    housing_types = {
+        'apartment',
+        'condo',
+        'cottage/cabin',
+        'duplex',
+        'flat',
+        'house',
+        'in-law',
+        'loft',
+        'townhouse',
+        'manufactured',
+        'assisted living',
+        'land',
+    }
+
+    parking_types = {
+        'carport',
+        'attached garage',
+        'detached garage',
+        'off-street parking',
+        'street parking',
+        'valet parking',
+        'no parking',
+    }
+
+    bedroom_bathroom_matcher = re.compile(r'(\d+)BR / (\d+)Ba')
+    size_matcher = re.compile(r'(\d+)((?:ft|m)2)')
+    cats_ok = 'cats ok'
+    dogs_ok = 'dogs ok'
+    furnished = 'furnished'
+    no_smoking = 'no smoking'
+    wheelchair_accessible = 'wheelchair accessible'
+
     def customize_result(self, result, html_row):
         housing_info = html_row.find('span', {'class': 'housing'})
         # Default values
@@ -416,6 +466,57 @@ class CraigslistHousing(CraigslistBase):
                     result['bedrooms'] = elem[:-2]
                 if elem.endswith('2'):
                     result['area'] = elem
+
+    def custom_include_details(self, result, soup):
+        attrgroups = soup.find_all('p', {'class': 'attrgroup'})
+        for attrgroup in attrgroups:
+            spans = attrgroup.find_all('span')
+            if 'open house dates' in attrgroup.text:
+                # the set of spans are all related to open house dates
+                result['openhouse_dates'] = map(
+                    self.parse_open_house_date, spans)
+                continue
+
+            for span in spans:
+                text = span.text
+
+                if 'housing_movein_now' in span.attrs.get('class', []):
+                    result['available_on'] = datetime.datetime.strptime(
+                        span.attrs['data-date'], DATE_FORMAT)
+                elif text in self.laundry_types:
+                    result['laundry_type'] = text
+                elif text in self.housing_types:
+                    result['housing_type'] = text
+                elif text in self.parking_types:
+                    result['parking_type'] = text
+                elif self.cats_ok in text:
+                    result['cats_ok'] = True
+                elif self.dogs_ok in text:
+                    result['dogs_ok'] = True
+                elif self.furnished in text:
+                    result['furnished'] = True
+                elif self.no_smoking in text:
+                    result['no_smoking'] = True
+                elif self.wheelchair_accessible in text:
+                    result['wheelchair_accessible'] = True
+                else:
+                    match = self.bedroom_bathroom_matcher.match(text)
+                    if match:
+                        result['bedrooms'] = int(match.group(1))
+                        result['bathrooms'] = int(match.group(2))
+                    else:
+                        match = self.size_matcher.match(text)
+                        if match:
+                            # include both the size and the units
+                            result['size'] = (
+                                int(match.group(1)), match.group(2))
+
+    def parse_open_house_date(element):
+        text = element.find('a').text
+        match = re.match(r'^.*?\s(\d{4}-\d{2}-\d{2})$', text)
+        if not match:
+            return None
+        return match.group(1)
 
 
 class CraigslistJobs(CraigslistBase):
