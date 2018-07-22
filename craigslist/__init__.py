@@ -413,6 +413,22 @@ class CraigslistHousing(CraigslistBase):
         'wheelchair_acccess': {'url_key': 'wheelchaccess', 'value': 1},
     }
 
+    default_details = {
+        'openhouse_dates': None,
+        'available_on': None,
+        'laundry_type': None,
+        'housing_type': None,
+        'parking_type': None,
+        'cats_ok': None,
+        'dogs_ok': None,
+        'furnished': None,
+        'no_smoking': None,
+        'wheelchair_accessible': None,
+        'bedrooms': None,
+        'bathrooms': None,
+        'area': None,
+    }
+
     laundry_types = {
         'w/d in unit',
         'w/d hookups',
@@ -469,11 +485,12 @@ class CraigslistHousing(CraigslistBase):
 
     def custom_include_details(self, result, soup):
         attrgroups = soup.find_all('p', {'class': 'attrgroup'})
+        details = self.default_details.copy()
         for attrgroup in attrgroups:
             spans = attrgroup.find_all('span')
             if 'open house dates' in attrgroup.text:
                 # the set of spans are all related to open house dates
-                result['openhouse_dates'] = map(
+                details['openhouse_dates'] = map(
                     self.parse_open_house_date, spans)
                 continue
 
@@ -481,35 +498,37 @@ class CraigslistHousing(CraigslistBase):
                 text = span.text
 
                 if 'housing_movein_now' in span.attrs.get('class', []):
-                    result['available_on'] = datetime.datetime.strptime(
+                    details['available_on'] = datetime.datetime.strptime(
                         span.attrs['data-date'], DATE_FORMAT)
                 elif text in self.laundry_types:
-                    result['laundry_type'] = text
+                    details['laundry_type'] = text
                 elif text in self.housing_types:
-                    result['housing_type'] = text
+                    details['housing_type'] = text
                 elif text in self.parking_types:
-                    result['parking_type'] = text
+                    details['parking_type'] = text
                 elif self.cats_ok in text:
-                    result['cats_ok'] = True
+                    details['cats_ok'] = True
                 elif self.dogs_ok in text:
-                    result['dogs_ok'] = True
+                    details['dogs_ok'] = True
                 elif self.furnished in text:
-                    result['furnished'] = True
+                    details['furnished'] = True
                 elif self.no_smoking in text:
-                    result['no_smoking'] = True
+                    details['no_smoking'] = True
                 elif self.wheelchair_accessible in text:
-                    result['wheelchair_accessible'] = True
+                    details['wheelchair_accessible'] = True
                 else:
                     match = self.bedroom_bathroom_matcher.match(text)
                     if match:
-                        result['bedrooms'] = int(match.group(1))
-                        result['bathrooms'] = int(match.group(2))
+                        details['bedrooms'] = int(match.group(1))
+                        details['bathrooms'] = int(match.group(2))
                     else:
                         match = self.size_matcher.match(text)
                         if match:
                             # include both the size and the units
-                            result['size'] = (
+                            details['area'] = (
                                 int(match.group(1)), match.group(2))
+
+        result.update(details)
 
     def parse_open_house_date(element):
         text = element.find('a').text
